@@ -15,8 +15,8 @@ const { aiReviewLimiter,shareLimiter } = require("../middlewares/rateLimit");
 const verifyJWT = require("../middlewares/auth.middleware");
 
 
-console.log("verifyJWT:", verifyJWT)
-console.log("createReview:", createReview)
+// console.log("verifyJWT:", verifyJWT)
+// console.log("createReview:", createReview)
 
 router.post("/",verifyJWT,aiReviewLimiter ,createReview);
 router.get("/", verifyJWT,getAllReviews);
