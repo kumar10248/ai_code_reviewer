@@ -1,11 +1,11 @@
-const BASE_URL = "http://localhost:8000/api/v1"
+const BASE_URL = "https://ai-code-reviewer-t0q0.onrender.com"
 
 export const registerUser = async (form: {
   name: string
   email: string
   password: string
 }) => {
-  const res = await fetch(`${BASE_URL}/auth/register`, {
+  const res = await fetch(`${BASE_URL}/register`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -26,7 +26,7 @@ export const loginUser = async (form: {
   email: string
   password: string
 }) => {
-  const res = await fetch(`${BASE_URL}/auth/login`, {
+  const res = await fetch(`${BASE_URL}/login`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"

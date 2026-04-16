@@ -1,7 +1,7 @@
 // app/(auth)/login/page.tsx
 "use client"
 
-import { loginUser } from "@/app/lib/api"
+import { loginUser } from "@/lib/api"
 
 // app/(auth)/login/page.tsx
 

@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { registerUser } from "@/app/lib/api"
+import { registerUser } from "@/lib/api"
 
 
 /* password strength */
