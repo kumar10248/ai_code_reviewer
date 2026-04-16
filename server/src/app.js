@@ -1,0 +1,20 @@
+const express=require("express")
+const app=express()
+
+app.use(express.json())
+app.use(require("cors")())
+app.set("trust proxy", 1)
+const { globalLimiter } = require("./middlewares/rateLimit")
+app.use(globalLimiter)
+
+const reviewRoutes=require("./routes/review.routes")
+const authRoutes=require("./routes/auth.routes")
+
+
+app.get('/',(req,res)=>{
+    res.send("Welcome to AI Code Review API")
+})
+
+app.use('/api/v1/auth',authRoutes)
+app.use('/api/v1/review',reviewRoutes)
+module.exports=app
