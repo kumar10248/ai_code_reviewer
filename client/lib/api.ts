@@ -1,4 +1,4 @@
-const BASE_URL = "https://ai-code-reviewer-t0q0.onrender.com"
+const BASE_URL = "https://ai-code-reviewer-t0q0.onrender.com/api/v1/auth"
 
 export const registerUser = async (form: {
   name: string
