@@ -24,10 +24,11 @@ const commentSchema = new mongoose.Schema({
     type: String,
     default: ""   
   },
-  category: {
-    type: String,
-    enum: ["security", "performance", "style", "bug"], 
-  }
+category: {
+  type: String,
+  enum: ["security", "performance", "style", "bug", "best_practice", "type_safety"],
+  required: true
+}
 }, { timestamps: true })
 
 module.exports = mongoose.model("Comment", commentSchema)

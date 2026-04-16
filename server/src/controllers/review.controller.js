@@ -14,7 +14,6 @@ const nanoid = async () => {
 const createReview = async (req, res) => {
   const { code } = req.body
 
-  console.log(code)
   if (!code || code.trim() === "") {
     return res.status(400).json({ message: "Code is required" })
   }
@@ -22,7 +21,6 @@ const createReview = async (req, res) => {
   try {
     const language = detectLanguage(code)
 
-    // Create review first with empty aiSummary
     const review = await Review.create({
       userId: req.user.id,
       code,
@@ -30,45 +28,34 @@ const createReview = async (req, res) => {
       aiSummary: ""
     })
 
-    // Set SSE headers — this keeps connection open for streaming
-    res.setHeader("Content-Type", "text/event-stream")
-    res.setHeader("Cache-Control", "no-cache")
-    res.setHeader("Connection", "keep-alive")
-    res.flushHeaders()
+    // ✅ correct destructuring
+    const { summary, score, comments, fix, tags } =
+      await streamAIReview(code, language)
 
-    // Stream AI review — ai.service handles OpenAI call
-    const { summary, comments } = await streamAIReview(code, language, res)
-
-    // Once streaming is done, save summary to DB
+    // ✅ use summary directly
     review.aiSummary = summary
     await review.save()
 
-    // Save all inline comments to DB
     if (comments.length > 0) {
       await Comment.insertMany(
         comments.map((c) => ({ ...c, reviewId: review._id }))
       )
     }
 
-    // Send final event with reviewId so frontend can redirect
-    res.write(`data: ${JSON.stringify({ done: true, reviewId: review._id })}\n\n`)
-    res.end()
+    return res.json({
+      success: true,
+      reviewId: review._id,
+      summary,
+      score,
+      comments,
+      fix,
+      tags
+    })
 
   } catch (err) {
-  console.error("createReview error:", err)
-
-  if (!res.headersSent) {
+    console.error("createReview error:", err)
     return res.status(500).json({ message: "Server error" })
   }
-
-  // ✅ Always send done event
-  res.write(`data: ${JSON.stringify({
-    type: "done",
-    reviewId: review?._id || null
-  })}\n\n`)
-
-  res.end()
-}
 }
 
 // ─── GET /api/reviews ────────────────────────────────────────────

@@ -4,17 +4,14 @@ require("dotenv").config();
 const verifyJWT = async (req, res, next) => {
   try {
     const authToken = req.get("Authorization")
-    console.log(authToken)
 
     if (!authToken || !authToken.startsWith("Bearer ")) {
       return res.status(401).json({ msg: "Unauthorized access" })
     }
 
     const token = authToken.split(" ")[1]
-    console.log(token)
 
     const decoded = await jwt.verify(token, process.env.JWT_SECRET, { issuer: "ai-review-app" })
-    console.log(decoded)
     
 
     if (!decoded?.id) {
