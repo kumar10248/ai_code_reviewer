@@ -1,8 +1,38 @@
 const User=require("../models/User")
 const bcrypt = require("bcrypt")
 const jwt = require("jsonwebtoken")
+const {generateAccessToken,generateRefreshToken}=require("../utils/generateToken")
 require("dotenv").config()
 
+const refreshAccessToken = async (req, res) => {
+
+const refreshToken = req.cookies?.refreshToken;
+
+  if (!refreshToken) {
+    throw new ApiError(401, "No refresh token");
+  }
+
+  let decoded;
+
+try {
+  decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+} catch (err) {
+  throw new ApiError(401, "Invalid refresh token");
+}
+
+  const user = await User.findById(decoded.id);
+
+  if (!user || user.refreshToken !== refreshToken) {
+    throw new ApiError(401, "Invalid refresh token");
+  }
+
+  const newAccessToken = generateAccessToken(user);
+
+  res.status(200).json({
+  success: true,
+  accessToken: newAccessToken
+});
+}
 const register = async (req, res) => {
   try {
     const { name, email, password } = req.body
@@ -45,7 +75,6 @@ const register = async (req, res) => {
 const login = async (req, res) => {
   try {
     const { email, password } = req.body
-
     if (!email || !password) {
       return res.status(400).json({ msg: "All fields are required" })
     }
@@ -62,24 +91,51 @@ const login = async (req, res) => {
       return res.status(401).json({ msg: "Invalid credentials" })
     }
 
-    const token = jwt.sign(
-      { id: user._id },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d", issuer: "ai-review-app" }
-    )
+    
+    const accessToken = generateAccessToken(user)
+    const refreshToken=generateRefreshToken(user)
+    user.refreshToken=refreshToken;
+    await user.save()
 
-    const { password: _, ...userData } = user.toObject()
 
+res.cookie("refreshToken", refreshToken, {
+  httpOnly: true,
+  secure: true,
+  sameSite: "strict"
+});
     res.status(200).json({
-      token,
+      accessToken,
       msg: "Login successful",
-      data: userData
+  
     })
     
 
   } catch (error) {
     console.error(error)
     res.status(500).json({ msg: "Internal server error" })
+  }
+}
+
+const getUserData=async(req,res)=>{
+  try {
+    const user=await User.findById(req.user.id).select("-password -refreshToken")
+
+    if (!user) {
+  return res.status(404).json({ msg: "User not found" })
+}
+     res.status(200).json({
+      success: true,
+      msg: "User data fetched successfully",
+      user
+    })
+
+  } catch (error) {
+    console.error("getUserData error:", error)
+
+    res.status(500).json({
+      success: false,
+      msg: "Internal server error"
+    })
   }
 }
 
@@ -126,4 +182,4 @@ return res.status(500).json({msg:"server error"})
 
 }
 
-module.exports = { register, login ,changePassword}
+module.exports = { register, login ,changePassword,refreshAccessToken,getUserData}

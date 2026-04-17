@@ -19,6 +19,9 @@ const userSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  refreshToken: {
+  type: String
+},
   passwordChangedAt: {
   type: Date
 }

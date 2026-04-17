@@ -87,7 +87,7 @@ const handleSubmit = async (e: React.FormEvent) => {
   try {
     const data = await loginUser(form)
 
-    localStorage.setItem("token", data.token)
+    localStorage.setItem("token", data.accessToken)
 
     router.push("/dashboard")
   } catch (err: any) {
