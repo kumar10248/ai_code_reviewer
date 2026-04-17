@@ -1,7 +1,7 @@
 // app/(auth)/login/page.tsx
 "use client"
 
-import { loginUser } from "@/lib/api"
+import { authAPI } from "@/lib/api"
 
 // app/(auth)/login/page.tsx
 
@@ -85,9 +85,9 @@ const handleSubmit = async (e: React.FormEvent) => {
   setError("")
 
   try {
-    const data = await loginUser(form)
+    const data = await authAPI.login(form)
 
-    localStorage.setItem("token", data.accessToken)
+    localStorage.setItem("token", data.token)
 
     router.push("/dashboard")
   } catch (err: any) {

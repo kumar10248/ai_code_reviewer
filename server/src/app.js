@@ -16,5 +16,5 @@ app.get('/',(req,res)=>{
 })
 
 app.use('/api/v1/auth',authRoutes)
-app.use('/api/v1/review',reviewRoutes)
+app.use('/api/v1/reviews',reviewRoutes)
 module.exports=app

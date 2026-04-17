@@ -92,7 +92,7 @@ const login = async (req, res) => {
     }
 
     
-    const accessToken = generateAccessToken(user)
+    const token = generateAccessToken(user)
     const refreshToken=generateRefreshToken(user)
     user.refreshToken=refreshToken;
     await user.save()
@@ -104,7 +104,7 @@ res.cookie("refreshToken", refreshToken, {
   sameSite: "strict"
 });
     res.status(200).json({
-      accessToken,
+      token,
       msg: "Login successful",
   
     })

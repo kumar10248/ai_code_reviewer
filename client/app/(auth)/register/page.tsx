@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { registerUser } from "@/lib/api"
+import { authAPI } from "@/lib/api"
 
 
 /* password strength */
@@ -98,7 +98,7 @@ const handleSubmit = async (e: React.FormEvent) => {
   setError("")
 
   try {
-    await registerUser(form)
+    await authAPI.register(form)
 
     alert("Registered successfully 🚀")
     router.push("/login")
