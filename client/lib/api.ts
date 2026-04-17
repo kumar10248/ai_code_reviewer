@@ -95,5 +95,5 @@ export const reviewAPI = {
 // ── Share (public) ────────────────────────────────────────────────
 export const shareAPI = {
   get: (token: string) =>
-    request<{ review: Review; comments: ReviewComment[] }>(`/share/${token}`),
+    request<{ review: Review; comments: ReviewComment[] }>(`/reviews/share/${token}`),
 }

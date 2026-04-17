@@ -1,18 +1,19 @@
 // services/language.service.js
 const detectLanguage = (code) => {
+  const normalized = code.toLowerCase()
   const map = [
+    { lang: "typescript", signs: ["interface ", ": string", ": number", "<t>", "tsx"] },
+    { lang: "javascript", signs: ["const ", "let ", "var ", "=>", "require(", "console.log"] },
     { lang: "python",     signs: ["def ", "import ", "print(", "elif "] },
-    { lang: "javascript", signs: ["const ", "let ", "var ", "=>", "require("] },
-    { lang: "typescript", signs: ["interface ", ": string", ": number", "tsx", "<T>"] },
-    { lang: "java",       signs: ["public class", "System.out", "void main"] },
+    { lang: "java",       signs: ["public class", "system.out", "void main","public"] },
     { lang: "cpp",        signs: ["#include", "std::", "cout <<", "int main"] },
-    { lang: "go",         signs: ["func ", "package main", "fmt.Println"] },
+    { lang: "go",         signs: ["func ", "package main", "fmt.println"] },
     { lang: "rust",       signs: ["fn main", "let mut", "println!", "impl "] },
-    { lang: "php",        signs: ["<?php", "echo ", "$_GET", "$_POST"] },
+    { lang: "php",        signs: ["<?php", "echo ", "$_get", "$_post"] },
   ]
 
   for (const { lang, signs } of map) {
-    if (signs.some((s) => code.includes(s))) return lang
+    if (signs.some((s) => normalized.includes(s))) return lang
   }
 
   return "unknown"

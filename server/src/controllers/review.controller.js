@@ -3,12 +3,10 @@ const Review = require("../models/Review")
 const Comment = require("../models/Comment")
 const { detectLanguage } = require("../services/language.service")
 const { streamAIReview } = require("../services/ai.service")
-
-const nanoid = async () => {
+const nanoid = async (size = 12) => {
   const { nanoid } = await import('nanoid')
-  return nanoid()
+  return nanoid(size)
 }
-
 // ─── POST /api/reviews ───────────────────────────────────────────
 // Creates review, detects language, streams AI response via SSE
 const createReview = async (req, res) => {
@@ -34,6 +32,9 @@ const createReview = async (req, res) => {
 
     // ✅ use summary directly
     review.aiSummary = summary
+    review.score=score
+    review.fix=fix
+
     await review.save()
 
     if (comments.length > 0) {
@@ -71,7 +72,7 @@ const getAllReviews = async (req, res) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .select("language aiSummary createdAt shareToken"), // don't send full code in list
+        .select("language aiSummary createdAt shareToken score"), // don't send full code in list
       Review.countDocuments({ userId: req.user.id })
     ])
 
@@ -161,7 +162,7 @@ const createShareLink = async (req, res) => {
     }
 
     // Generate fresh token + 7-day expiry
-    review.shareToken = nanoid(12)
+    review.shareToken = await nanoid(12)
     review.shareExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
     await review.save()
 
@@ -205,6 +206,7 @@ const revokeShareLink = async (req, res) => {
 // Public route — no auth needed, just a valid non-expired token
 const getSharedReview = async (req, res) => {
   try {
+
     const review = await Review.findOne({
       shareToken: req.params.token,
       shareExpiresAt: { $gt: new Date() }  // token must not be expired
