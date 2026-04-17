@@ -1,4 +1,4 @@
-const BASE = "http://localhost:8000/api/v1"
+const BASE = "https://ai-code-reviewer-t0q0.onrender.com/api/v1"
 
 
 function getToken() {
