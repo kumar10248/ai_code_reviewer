@@ -3,10 +3,10 @@ const detectLanguage = (code) => {
 
 const map = [
   { lang: "typescript", signs: ["interface ", ": string", ": number", "<t>", "as ", "implements "] },
-  { lang: "javascript", signs: ["const ", "let ", "var ", "=>", "require(", "console.log"] },
+  { lang: "javascript", signs: ["const ", "let ", "var ", "=>", "require(", "console.log","function"] },
   { lang: "python",     signs: ["def ", "import ", "print(", "elif ", "self"] },
   { lang: "java",       signs: ["public class", "system.out", "void main", "new "] },
-  { lang: "cpp",        signs: ["#include", "std::", "cout <<", "int main"] },
+  { lang: "cpp",        signs: ["#include", "std::", "cout <<", "int main","cin"] },
   { lang: "c",          signs: ["#include", "printf(", "scanf(", "int main"] },
   { lang: "go",         signs: ["func ", "package main", "fmt.println"] },
   { lang: "rust",       signs: ["fn main", "let mut", "println!", "impl "] },

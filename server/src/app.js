@@ -2,7 +2,12 @@ const express=require("express")
 const app=express()
 
 app.use(express.json())
-app.use(require("cors")())
+const cors = require("cors");
+
+app.use(cors({
+  origin: "https://ai-code-reviewer-t0q0.onrender.com",
+  credentials: true
+}));
 app.set("trust proxy", 1)
 const { globalLimiter } = require("./middlewares/rateLimit")
 app.use(globalLimiter)

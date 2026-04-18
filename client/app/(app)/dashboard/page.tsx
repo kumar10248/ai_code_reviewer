@@ -4,9 +4,10 @@
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { reviewAPI, authAPI, type Review } from "@/lib/api"
+import { reviewAPI, authAPI, clearToken, type Review } from "@/lib/api"
+import { useAuthGuard, useHandleUnauthorized } from "@/lib/useAuth"
 
-/* ─── Helpers ────────────────────────────────────────────────────── */
+/* ─── Helpers ─────────────────────────────────────────────────── */
 const LANG_COLOR: Record<string, string> = {
   javascript: "#fbbf24", typescript: "#3b82f6", python: "#00ff9d",
   java: "#fb923c", go: "#00c8e8", rust: "#f87171", cpp: "#c084fc",
@@ -31,14 +32,16 @@ function scoreColor(s?: number) {
   return "#00ff9d"
 }
 
-interface UserInfo { name: string; email: string }
-
-/* ─── Component ─────────────────────────────────────────────────── */
+/* ─── Component ───────────────────────────────────────────────── */
 export default function DashboardPage() {
   const router = useRouter()
 
+  // ── Auth guard: if no valid token → redirect to /login immediately ──
+  const { ready } = useAuthGuard()
+  const handleUnauthorized = useHandleUnauthorized()
+
   const [reviews, setReviews]       = useState<Review[]>([])
-  const [user, setUser]             = useState<UserInfo | null>(null)
+  const [user, setUser]             = useState<{ name: string; email: string } | null>(null)
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState("")
   const [deleteId, setDeleteId]     = useState<string | null>(null)
@@ -51,10 +54,9 @@ export default function DashboardPage() {
 
   useEffect(() => { setMounted(true) }, [])
 
-  /* ── Fetch user + reviews on mount ── */
+  /* ── Load user + reviews — only runs after auth guard passes ── */
   useEffect(() => {
-    const token = localStorage.getItem("token")
-    if (!token) { router.push("/login"); return }
+    if (!ready) return   // wait until guard has confirmed valid token
 
     const load = async () => {
       try {
@@ -65,11 +67,8 @@ export default function DashboardPage() {
         setUser({ name: userData.user.name, email: userData.user.email })
         setReviews(reviewData.reviews)
       } catch (err: any) {
-        // token expired or invalid
-        if (err.message?.includes("401") || err.message?.toLowerCase().includes("unauthorized")) {
-          localStorage.removeItem("token")
-          router.push("/login")
-        } else {
+        // If API says 401, handleUnauthorized clears token + redirects
+        if (!handleUnauthorized(err)) {
           setError("Failed to load reviews. Please refresh.")
         }
       } finally {
@@ -77,7 +76,7 @@ export default function DashboardPage() {
       }
     }
     load()
-  }, [])
+  }, [ready])
 
   /* ── Canvas dot grid ── */
   useEffect(() => {
@@ -108,7 +107,7 @@ export default function DashboardPage() {
     return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", resize) }
   }, [])
 
-  /* ── Delete handler ── */
+  /* ── Delete ── */
   const handleDelete = async () => {
     if (!deleteId) return
     setDeleteLoading(true)
@@ -116,8 +115,8 @@ export default function DashboardPage() {
       await reviewAPI.delete(deleteId)
       setReviews(prev => prev.filter(r => r._id !== deleteId))
       setDeleteId(null)
-    } catch {
-      setError("Failed to delete review.")
+    } catch (err: any) {
+      if (!handleUnauthorized(err)) setError("Failed to delete review.")
     } finally {
       setDeleteLoading(false)
     }
@@ -125,32 +124,42 @@ export default function DashboardPage() {
 
   /* ── Sign out ── */
   const handleSignOut = () => {
-    localStorage.removeItem("token")
-    router.push("/login")
+    clearToken()
+    router.replace("/login")
   }
 
   const filtered = reviews.filter(r =>
-    r.language.toLowerCase().includes(search.toLowerCase()) ||
+    r.language?.toLowerCase().includes(search.toLowerCase()) ||
     r.aiSummary?.toLowerCase().includes(search.toLowerCase())
   )
 
   const stats = [
-    { label: "Total",     val: reviews.length,                                                                          icon: "▦", color: "#00ff9d" },
-    { label: "Shared",    val: reviews.filter(r => r.shareToken).length,                                                icon: "⇗", color: "#3b82f6" },
+    { label: "Total",     val: reviews.length, icon: "▦", color: "#00ff9d" },
+    { label: "Shared",    val: reviews.filter(r => r.shareToken).length, icon: "⇗", color: "#3b82f6" },
     { label: "This week", val: reviews.filter(r => Date.now() - new Date(r.createdAt).getTime() < 7 * 86400000).length, icon: "◷", color: "#fbbf24" },
     {
       label: "Avg score",
       val: reviews.filter(r => r.score).length
         ? (reviews.reduce((a, r) => a + (r.score || 0), 0) / reviews.filter(r => r.score).length).toFixed(1)
         : "—",
-      icon: "◈", color: "#c084fc"
+      icon: "◈", color: "#c084fc",
     },
   ]
 
-  // initials from name
   const initials = user?.name
     ? user.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()
     : "??"
+
+  // Show spinner while guard is checking or while loading data
+  if (!ready || (ready && loading)) return (
+    <div style={{ minHeight: "100vh", background: "#08080e", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 14 }}>
+      <style>{`:root{--accent:#00ff9d}@keyframes glowPulse{0%,100%{opacity:.4}50%{opacity:1}}`}</style>
+      <div style={{ display: "flex", gap: 6 }}>
+        {[0, 1, 2].map(i => <span key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent)", animation: `glowPulse 1.2s ease-in-out ${i * 0.18}s infinite` }} />)}
+      </div>
+      <p style={{ color: "#55556e", fontFamily: "'JetBrains Mono',monospace", fontSize: 12 }}>Loading your workspace...</p>
+    </div>
+  )
 
   return (
     <>
@@ -168,9 +177,7 @@ export default function DashboardPage() {
         body{background:var(--bg);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden}
         a{color:inherit;text-decoration:none}
         button{cursor:pointer;font-family:var(--sans)}
-        ::-webkit-scrollbar{width:4px}
-        ::-webkit-scrollbar-track{background:transparent}
-        ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
         @keyframes fadeUp   {from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
         @keyframes fadeIn   {from{opacity:0}to{opacity:1}}
@@ -182,7 +189,7 @@ export default function DashboardPage() {
         @keyframes spin     {to{transform:rotate(360deg)}}
         @keyframes shimmer  {0%{background-position:-200% center}100%{background-position:200% center}}
 
-        .sidebar{width:248px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;justify-content:space-between;padding:22px 14px;flex-shrink:0;position:relative;overflow:hidden;transition:transform .3s cubic-bezier(.22,1,.36,1)}
+        .sidebar{width:248px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;justify-content:space-between;padding:22px 14px;flex-shrink:0;position:relative;overflow:hidden}
         .sidebar-glow{position:absolute;bottom:-40px;left:50%;transform:translateX(-50%);width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(0,255,157,.06),transparent 70%);pointer-events:none;animation:glowPulse 5s ease-in-out infinite}
         .nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--r);font-size:13px;border:1px solid transparent;transition:all .18s;color:var(--muted);position:relative;overflow:hidden}
         .nav-item.active{background:var(--bg3);color:var(--text);border-color:var(--border2)}
@@ -205,10 +212,8 @@ export default function DashboardPage() {
         .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:300;backdrop-filter:blur(4px);animation:fadeIn .15s ease}
         .modal-box{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rl);padding:28px 30px;max-width:400px;width:90%;animation:popIn .2s cubic-bezier(.22,1,.36,1);position:relative;overflow:hidden}
         .modal-box::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(248,113,113,.5),transparent)}
-        .hamburger{display:none}
-
-        /* skeleton */
         .skeleton{background:linear-gradient(90deg,var(--bg3) 25%,var(--bg4) 50%,var(--bg3) 75%);background-size:200% auto;animation:shimmer 1.5s linear infinite;border-radius:var(--r)}
+        .hamburger{display:none}
 
         @media(max-width:900px){
           body{overflow:auto}
@@ -234,7 +239,6 @@ export default function DashboardPage() {
         className="dashboard-root"
         style={{ display: "flex", height: "100vh", background: "var(--bg)", opacity: mounted ? 1 : 0, transition: "opacity .3s" }}
       >
-
         {/* ══ SIDEBAR ══ */}
         <aside className={`sidebar${sideOpen ? " open" : ""}`}>
           <canvas ref={canvasRef} className="side-canvas" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 0 }} />
@@ -243,9 +247,7 @@ export default function DashboardPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 20, position: "relative", zIndex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <Link href="/" style={{ fontFamily: "var(--mono)", fontSize: 15, fontWeight: 600, padding: "0 4px" }}>
-                <span style={{ color: "var(--accent)", textShadow: "0 0 12px rgba(0,255,157,.5)" }}>&lt;</span>
-                ReviewAI
-                <span style={{ color: "var(--accent)", textShadow: "0 0 12px rgba(0,255,157,.5)" }}>/&gt;</span>
+                <span style={{ color: "var(--accent)", textShadow: "0 0 12px rgba(0,255,157,.5)" }}>&lt;</span>ReviewAI<span style={{ color: "var(--accent)", textShadow: "0 0 12px rgba(0,255,157,.5)" }}>/&gt;</span>
               </Link>
               <button className="hamburger" onClick={() => setSideOpen(o => !o)}>☰</button>
             </div>
@@ -278,20 +280,11 @@ export default function DashboardPage() {
           {/* user footer */}
           <div className="side-user" style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 12px", background: "var(--bg3)", borderRadius: "var(--r)", border: "1px solid var(--border)", position: "relative", zIndex: 1 }}>
             <div style={{ width: 34, height: 34, borderRadius: "50%", background: "rgba(0,255,157,.12)", border: "1px solid rgba(0,255,157,.35)", boxShadow: "0 0 10px rgba(0,255,157,.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "var(--accent)", fontFamily: "var(--mono)", flexShrink: 0 }}>
-              {loading ? "??" : initials}
+              {initials}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              {loading ? (
-                <>
-                  <div className="skeleton" style={{ height: 12, width: "70%", marginBottom: 5 }} />
-                  <div className="skeleton" style={{ height: 10, width: "90%" }} />
-                </>
-              ) : (
-                <>
-                  <p style={{ fontSize: 13, fontWeight: 600, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.name}</p>
-                  <p style={{ fontSize: 10, color: "var(--muted)", margin: 0, fontFamily: "var(--mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.email}</p>
-                </>
-              )}
+              <p style={{ fontSize: 13, fontWeight: 600, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.name}</p>
+              <p style={{ fontSize: 10, color: "var(--muted)", margin: 0, fontFamily: "var(--mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.email}</p>
             </div>
             <button
               onClick={handleSignOut}
@@ -307,7 +300,7 @@ export default function DashboardPage() {
         <main className="main-area" style={{ flex: 1, padding: "28px 36px", display: "flex", flexDirection: "column", gap: 24, overflowY: "auto", position: "relative" }}>
           <div style={{ position: "absolute", top: 0, left: "30%", right: "30%", height: 1, background: "linear-gradient(90deg,transparent,rgba(0,255,157,.15),transparent)", pointerEvents: "none" }} />
 
-          {/* global error banner */}
+          {/* Error banner */}
           {error && (
             <div style={{ background: "rgba(248,113,113,.07)", border: "1px solid rgba(248,113,113,.25)", borderRadius: "var(--r)", padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", animation: "fadeIn .3s ease" }}>
               <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--red)" }}>{error}</span>
@@ -315,13 +308,13 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* ── HEADER ── */}
+          {/* Header */}
           <div className="header-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, flexWrap: "wrap" }}>
             <div style={{ animation: "slideIn .5s cubic-bezier(.22,1,.36,1) both" }}>
               <h1 style={{ fontFamily: "var(--sans)", fontSize: 24, fontWeight: 800, letterSpacing: "-0.6px", display: "flex", alignItems: "center", gap: 10 }}>
                 Your reviews
                 <span style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 400, color: "var(--muted)", background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 20, padding: "2px 10px" }}>
-                  {loading ? "..." : reviews.length}
+                  {reviews.length}
                 </span>
               </h1>
               <p style={{ fontSize: 13, color: "var(--muted)", marginTop: 3 }}>
@@ -341,7 +334,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* ── STATS ── */}
+          {/* Stats */}
           <div className="stats-row" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 }}>
             {stats.map((s, i) => (
               <div key={s.label} className="stat-card" style={{ animationDelay: `${i * 0.07}s` }}>
@@ -350,43 +343,25 @@ export default function DashboardPage() {
                   <span style={{ fontSize: 11, color: "var(--muted)", letterSpacing: ".03em" }}>{s.label}</span>
                   <span style={{ fontSize: 14, color: s.color, opacity: .7 }}>{s.icon}</span>
                 </div>
-                {loading
-                  ? <div className="skeleton" style={{ height: 30, width: "50%" }} />
-                  : <span style={{ fontFamily: "var(--mono)", fontSize: 30, fontWeight: 600, lineHeight: 1, color: s.color, textShadow: `0 0 14px ${s.color}55` }}>{s.val}</span>
-                }
+                <span style={{ fontFamily: "var(--mono)", fontSize: 30, fontWeight: 600, lineHeight: 1, color: s.color, textShadow: `0 0 14px ${s.color}55` }}>
+                  {s.val}
+                </span>
               </div>
             ))}
           </div>
 
-          {/* ── LIST ── */}
+          {/* List */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
               <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--accent)", letterSpacing: ".06em" }}>// recent reviews</span>
               {search && <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--muted)", background: "var(--bg3)", borderRadius: 4, padding: "1px 8px", border: "1px solid var(--border)" }}>{filtered.length} result{filtered.length !== 1 ? "s" : ""}</span>}
             </div>
 
-            {/* loading skeletons */}
-            {loading && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {[1, 2, 3].map(i => (
-                  <div key={i} style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "var(--rl)", padding: "16px 18px", display: "flex", gap: 16, alignItems: "center", animationDelay: `${i * 0.1}s` }}>
-                    <div className="skeleton" style={{ width: 40, height: 40, borderRadius: "50%", flexShrink: 0 }} />
-                    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
-                      <div className="skeleton" style={{ height: 12, width: "30%" }} />
-                      <div className="skeleton" style={{ height: 10, width: "70%" }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* empty state */}
-            {!loading && filtered.length === 0 && (
+            {/* Empty state */}
+            {filtered.length === 0 && (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "64px 0", animation: "fadeIn .4s ease" }}>
                 <div style={{ width: 64, height: 64, borderRadius: "50%", background: "var(--bg3)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--mono)", fontSize: 22, color: "var(--border2)" }}>{ }</div>
-                <p style={{ color: "var(--muted)", fontSize: 15 }}>
-                  {search ? `No results for "${search}"` : "No reviews yet."}
-                </p>
+                <p style={{ color: "var(--muted)", fontSize: 15 }}>{search ? `No results for "${search}"` : "No reviews yet."}</p>
                 {!search && (
                   <button className="new-btn" style={{ width: "auto", padding: "10px 24px" }} onClick={() => router.push("/review/new")}>
                     + Start your first review
@@ -395,8 +370,8 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* review cards */}
-            {!loading && filtered.map((review, idx) => {
+            {/* Review cards */}
+            {filtered.map((review, idx) => {
               const lc = LANG_COLOR[review.language] || "#6b6b8a"
               const sc = scoreColor(review.score)
               const isHovered = hoveredId === review._id
@@ -409,13 +384,13 @@ export default function DashboardPage() {
                   onMouseEnter={() => setHoveredId(review._id)}
                   onMouseLeave={() => setHoveredId(null)}
                 >
-                  {/* score ring */}
-                  <div style={{ flexShrink: 0, width: 40, height: 40, borderRadius: "50%", background: `${sc}12`, border: `1.5px solid ${sc}`, boxShadow: isHovered ? `0 0 12px ${sc}44` : "none", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 0, transition: "box-shadow .2s" }}>
+                  {/* Score ring */}
+                  <div style={{ flexShrink: 0, width: 40, height: 40, borderRadius: "50%", background: `${sc}12`, border: `1.5px solid ${sc}`, boxShadow: isHovered ? `0 0 12px ${sc}44` : "none", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", transition: "box-shadow .2s" }}>
                     <span style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700, lineHeight: 1, color: sc }}>{review.score ?? "?"}</span>
                     <span style={{ fontFamily: "var(--mono)", fontSize: 8, color: sc, opacity: .7 }}>/10</span>
                   </div>
 
-                  {/* content */}
+                  {/* Content */}
                   <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                       <span style={{ fontFamily: "var(--mono)", fontSize: 11, fontWeight: 600, padding: "2px 9px", borderRadius: 4, color: lc, background: `${lc}12`, border: `1px solid ${lc}28` }}>{review.language}</span>
@@ -424,12 +399,12 @@ export default function DashboardPage() {
                       )}
                       <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--muted)", marginLeft: "auto" }}>{timeAgo(review.createdAt)}</span>
                     </div>
-                    <p style={{ fontSize: 13, color: isHovered ? "rgba(232,232,242,.9)" : "var(--muted)", lineHeight: 1.5, fontFamily: "var(--sans)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", transition: "color .18s" }}>
+                    <p style={{ fontSize: 13, color: isHovered ? "rgba(232,232,242,.9)" : "var(--muted)", lineHeight: 1.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", transition: "color .18s" }}>
                       {review.aiSummary}
                     </p>
                   </div>
 
-                  {/* actions */}
+                  {/* Actions */}
                   <div className="card-actions" style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
                     <button className="action-btn" onClick={() => router.push(`/review/${review._id}`)}>Open →</button>
                     <button className="action-btn danger" onClick={() => setDeleteId(review._id)}>Delete</button>
@@ -445,17 +420,14 @@ export default function DashboardPage() {
           <div className="modal-overlay" onClick={() => !deleteLoading && setDeleteId(null)}>
             <div className="modal-box" onClick={e => e.stopPropagation()}>
               <div style={{ position: "absolute", top: -30, left: "50%", transform: "translateX(-50%)", width: 120, height: 60, background: "radial-gradient(circle,rgba(248,113,113,.12),transparent 70%)", pointerEvents: "none" }} />
-
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
                 <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(248,113,113,.1)", border: "1px solid rgba(248,113,113,.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>⚠</div>
                 <h3 style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-.3px" }}>Delete review?</h3>
               </div>
-
               <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 22, lineHeight: 1.65 }}>
                 This will permanently delete the review and all its inline comments.
                 <span style={{ color: "var(--red)" }}> This cannot be undone.</span>
               </p>
-
               {(() => {
                 const r = reviews.find(x => x._id === deleteId)
                 if (!r) return null
@@ -466,17 +438,12 @@ export default function DashboardPage() {
                   </div>
                 )
               })()}
-
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                <button
-                  onClick={() => setDeleteId(null)}
-                  disabled={deleteLoading}
-                  style={{ background: "transparent", border: "1px solid var(--border2)", color: "var(--muted)", padding: "9px 20px", borderRadius: "var(--r)", fontSize: 13, cursor: "pointer", transition: "all .15s" }}
-                >Cancel</button>
+                <button onClick={() => setDeleteId(null)} disabled={deleteLoading} style={{ background: "transparent", border: "1px solid var(--border2)", color: "var(--muted)", padding: "9px 20px", borderRadius: "var(--r)", fontSize: 13, cursor: "pointer" }}>Cancel</button>
                 <button
                   onClick={handleDelete}
                   disabled={deleteLoading}
-                  style={{ background: "rgba(248,113,113,.1)", border: "1px solid rgba(248,113,113,.4)", color: "var(--red)", padding: "9px 20px", borderRadius: "var(--r)", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, transition: "all .15s", opacity: deleteLoading ? 0.7 : 1 }}
+                  style={{ background: "rgba(248,113,113,.1)", border: "1px solid rgba(248,113,113,.4)", color: "var(--red)", padding: "9px 20px", borderRadius: "var(--r)", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, opacity: deleteLoading ? 0.7 : 1 }}
                 >
                   {deleteLoading && <span style={{ width: 12, height: 12, border: "2px solid rgba(248,113,113,.3)", borderTopColor: "var(--red)", borderRadius: "50%", animation: "spin .6s linear infinite", display: "inline-block" }} />}
                   Yes, delete

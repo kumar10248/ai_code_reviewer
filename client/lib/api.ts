@@ -1,43 +1,92 @@
+// lib/api.ts
+ 
 const BASE = "https://ai-code-reviewer-t0q0.onrender.com/api/v1"
-
-
-function getToken() {
+ 
+/* ── Token helpers ────────────────────────────────────────────────── */
+export function getToken(): string | null {
   if (typeof window === "undefined") return null
   return localStorage.getItem("token")
 }
-
-async function request<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
+ 
+export function setToken(t: string) {
+  localStorage.setItem("token", t)
+}
+ 
+export function clearToken() {
+  localStorage.removeItem("token")
+}
+ 
+/* ── Check if JWT is expired client-side (without calling server) ── */
+export function isTokenExpired(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]))
+    // exp is in seconds, Date.now() is ms
+    return payload.exp * 1000 < Date.now()
+  } catch {
+    return true // unparseable = treat as expired
+  }
+}
+ 
+/* ── Check auth status ── */
+export function getAuthStatus(): "valid" | "expired" | "none" {
   const token = getToken()
+  if (!token) return "none"
+  if (isTokenExpired(token)) {
+    clearToken()
+    return "expired"
+  }
+  return "valid"
+}
+ 
+/* ── Base request ─────────────────────────────────────────────────── */
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = getToken()
+ 
   const res = await fetch(`${BASE}${path}`, {
     ...options,
+    credentials: "include",   // sends refreshToken cookie automatically
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
   })
-
+ 
   const data = await res.json()
-  if (!res.ok) throw new Error(data.msg || data.message || "Request failed")
+ 
+  // Token expired — clear it so UI can redirect
+  if (res.status === 401) {
+    clearToken()
+    throw new Error(data.msg || "Unauthorized")
+  }
+ 
+  if (!res.ok) {
+    throw new Error(data.msg || data.message || "Request failed")
+  }
+ 
   return data
 }
-
-// ── Auth ──────────────────────────────────────────────────────────
+ 
+/* ── Auth API ─────────────────────────────────────────────────────── */
 export const authAPI = {
-  login:    (body: { email: string; password: string }) =>
-    request<{ token: string }>("/auth/login", { method: "POST", body: JSON.stringify(body) }),
-
+  login: (body: { email: string; password: string }) =>
+    request<{ token: string; msg: string }>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+ 
   register: (body: { name: string; email: string; password: string }) =>
-    request<{ token: string }>("/auth/register", { method: "POST", body: JSON.stringify(body) }),
-
+    request<{ msg: string }>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+ 
+  // GET /auth/me — returns logged-in user info
   me: () =>
     request<{ success: boolean; user: { _id: string; name: string; email: string } }>("/auth/me"),
 }
-
-// ── Reviews ───────────────────────────────────────────────────────
+ 
+/* ── Review types ─────────────────────────────────────────────────── */
 export interface ReviewComment {
   _id?: string
   lineNumber: number
@@ -46,7 +95,7 @@ export interface ReviewComment {
   message: string
   suggestion: string
 }
-
+ 
 export interface Review {
   _id: string
   language: string
@@ -59,7 +108,7 @@ export interface Review {
   fix?: string
   tags?: string[]
 }
-
+ 
 export interface CreateReviewResponse {
   success: boolean
   reviewId: string
