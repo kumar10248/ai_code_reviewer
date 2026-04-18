@@ -5,7 +5,7 @@ app.use(express.json())
 const cors = require("cors");
 
 app.use(cors({
-  origin: "https://ai-code-reviewer-t0q0.onrender.com",
+  origin: "https://reviewai.devashish.top",
   credentials: true
 }));
 app.set("trust proxy", 1)
