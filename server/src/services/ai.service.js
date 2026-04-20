@@ -1,9 +1,9 @@
-const OpenAI = require("openai")
+const Groq = require("groq-sdk");
 
-const openai = new OpenAI({
-  baseURL: "https://router.huggingface.co/v1",
-  apiKey: process.env.HF_TOKEN,
-})
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+});
+
 
 const SYSTEM_PROMPT = `You are a senior software engineer and security-focused code reviewer with 15+ years of experience across multiple languages and production systems.
 
@@ -75,69 +75,103 @@ FINAL RULE — read this before responding:
 If your response contains anything other than the JSON object above, it is wrong. No "Here is the review:", no \`\`\`json, no trailing text. Start with { and end with }.`
 // services/ai.service.js
 
+const VALID_CATEGORIES = [
+  "security",
+  "performance",
+  "style",
+  "bug",
+  "best_practice",
+  "type_safety"
+];
+
+// 🔥 normalize category (IMPORTANT)
+function normalizeCategory(cat) {
+  if (!cat) return "best_practice";
+
+  if (cat === "error-handling") return "best_practice"; // map invalid → valid
+
+  return VALID_CATEGORIES.includes(cat) ? cat : "best_practice";
+}
+
+// 🔥 safe JSON parser
+function safeParseJSON(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch {}
+    }
+    return {};
+  }
+}
+
+
+
 const streamAIReview = async (code, language) => {
   try {
-    const response = await openai.chat.completions.create({
-      model: "Qwen/Qwen3-Coder-Next:novita",
+    const response = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: `Language: ${language}\n\nCode:\n${code}` }
-      ]
-    })
+      ],
+      temperature: 0.2,
+    });
 
-    const fullText = response.choices[0]?.message?.content || ""
+    const fullText = response.choices[0]?.message?.content || "";
 
-    let parsed = {}
-    try {
-      const start = fullText.indexOf("{")
-      const end = fullText.lastIndexOf("}") + 1
-      const jsonString = fullText.slice(start, end)
-
-      parsed = JSON.parse(jsonString)
-    } catch (err) {
-      console.log("JSON parse failed:", fullText)
-    }
+    const parsed = safeParseJSON(fullText);
 
     const result = {
-  summary: parsed.summary || "",
-  score: parsed.score ?? 5,
-  comments: parsed.comments ?? [],
-  fix: parsed.fix ?? code,
- tags: parsed.tags?.length ? parsed.tags : ["best_practice", "clean_code"]
-}
-
-// ensure min comments
-if (!Array.isArray(result.comments) || result.comments.length === 0) {
-  result.comments = [{
-    lineNumber: 1,
-    severity: "info",
-    category: "best_practice",
-    message: "Code is simple but can be improved.",
-    suggestion: "Consider improving structure or scalability."
-  }]
-}
-
-return result
-
-    // ✅ 👇 YE HI TUMHARA FALLBACK BLOCK HAI
-    return {
       summary: parsed.summary || "",
-      score: parsed.score || 5,
-      comments: parsed.comments || [],
-      fix: parsed.fix || code,
-      tags: parsed.tags || []
+      score: parsed.score ?? 5,
+      comments: parsed.comments ?? [],
+      fix: parsed.fix ?? code,
+      tags: parsed.tags?.length ? parsed.tags : ["best_practice", "clean_code"]
+    };
+
+    // ✅ sanitize comments (CRITICAL FIX)
+    result.comments = (result.comments || []).map(c => ({
+      lineNumber: typeof c.lineNumber === "number" ? c.lineNumber : 0,
+      severity: ["info", "warning", "error"].includes(c.severity) ? c.severity : "info",
+      category: normalizeCategory(c.category),
+      message: c.message || "No message provided",
+      suggestion: c.suggestion || "No suggestion provided"
+    }));
+
+    // ensure minimum comments
+    if (result.comments.length === 0) {
+      result.comments = [{
+        lineNumber: 1,
+        severity: "info",
+        category: "best_practice",
+        message: "Code is simple but can be improved.",
+        suggestion: "Consider improving structure or scalability."
+      }];
     }
 
+    return result;
+
   } catch (err) {
-    console.error("HF AI ERROR:", err.message)
+    console.error("Groq AI ERROR:", err.message);
 
     return {
       summary: "AI review unavailable",
-      score: 0,
-      comments: [],
+      score: 3,
+      comments: [{
+        lineNumber: 0,
+        severity: "warning",
+        category: "best_practice",
+        message: "AI service failed",
+        suggestion: "Retry request"
+      }],
       fix: code,
-      tags: []
-    }
+      tags: ["fallback"]
+    };
   }
-}
-module.exports = { streamAIReview }
+};
+
+module.exports = { streamAIReview };
